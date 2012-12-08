@@ -34,6 +34,8 @@ typedef enum {
     YouTubeThumbnailDefaultMaxQuality
 } YouTubeThumbnail;
 
+extern NSString * const HCYoutubeParserErrorUserInfoReason;
+
 @interface HCYoutubeParser : NSObject
 
 /**
@@ -61,6 +63,17 @@ typedef enum {
  
  */
 + (NSDictionary *)h264videosWithYoutubeID:(NSString *)youtubeID;
+
+/**
+ Method for retreiving an iOS supported video link
+ Also allows for the case the request returns a fail status
+ 
+ @param youtubeID the id of the youtube video
+ @param error feedback
+ @return dictionary with the available formats for the selected video
+ 
+ */
++ (NSDictionary *)h264videosWithYoutubeID:(NSString *)youtubeID error:(NSError **)error;
 
 /**
  Block based method for retreiving a iOS supported video link

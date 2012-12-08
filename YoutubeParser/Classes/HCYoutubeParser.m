@@ -8,10 +8,13 @@
 
 #import "HCYoutubeParser.h"
 
-#define kYoutubeInfoURL      @"http://www.youtube.com/get_video_info?video_id="
-#define kYoutubeThumbnailURL @"http://img.youtube.com/vi/%@/%@.jpg"
-#define kYoutubeDataURL      @"http://gdata.youtube.com/feeds/api/videos/%@?alt=json"
-#define kUserAgent @"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_2) AppleWebKit/537.4 (KHTML, like Gecko) Chrome/22.0.1229.79 Safari/537.4"
+NSString * const HCYoutubeParserURLInfo = @"http://www.youtube.com/get_video_info?video_id=";
+NSString * const HCYoutubeParserURLThumbnail = @"http://img.youtube.com/vi/%@/%@.jpg";
+NSString * const HCYoutubeParserURLData = @"http://gdata.youtube.com/feeds/api/videos/%@?alt=json";
+NSString * const HCYoutubeParserUserAgent = @"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_8_2) AppleWebKit/537.4 (KHTML, like Gecko) Chrome/22.0.1229.79 Safari/537.4";
+
+
+NSString * const HCYoutubeParserErrorUserInfoReason = @"reason";
 
 @interface NSString (QueryString)
 
@@ -100,53 +103,75 @@
 }
 
 + (NSDictionary *)h264videosWithYoutubeID:(NSString *)youtubeID {
-    if (youtubeID) {
-        NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"%@%@", kYoutubeInfoURL, youtubeID]];
+    return [self h264videosWithYoutubeID:youtubeID error:nil];
+}
+
+
++ (NSDictionary *)h264videosWithYoutubeID:(NSString *)youtubeID error:(NSError **)error
+{
+    NSMutableDictionary * videoDictionary = nil;
+    
+    if ( youtubeID )
+    {
+        NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"%@%@", HCYoutubeParserURLInfo, youtubeID]];
         NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
-        [request setValue:kUserAgent forHTTPHeaderField:@"User-Agent"];
+        [request setValue:HCYoutubeParserUserAgent forHTTPHeaderField:@"User-Agent"];
         [request setHTTPMethod:@"GET"];
         
         NSURLResponse *response = nil;
-        NSError *error = nil;
-        NSData *responseData = [NSURLConnection sendSynchronousRequest:request returningResponse:&response error:&error];
+        NSError *err = nil;
+        NSData *responseData = [NSURLConnection sendSynchronousRequest:request returningResponse:&response error:&err];
         
-        if (!error) {
+        if ( ! err )
+        {
             NSString *responseString = [[NSString alloc] initWithData:responseData encoding:NSUTF8StringEncoding];
             
             NSMutableDictionary *parts = [responseString dictionaryFromQueryStringComponents];
             
-            if (parts) {
-                
-                NSString *fmtStreamMapString = [[parts objectForKey:@"url_encoded_fmt_stream_map"] objectAtIndex:0];
-                NSArray *fmtStreamMapArray = [fmtStreamMapString componentsSeparatedByString:@","];
-                
-                NSMutableDictionary *videoDictionary = [NSMutableDictionary dictionary];
-                
-                for (NSString *videoEncodedString in fmtStreamMapArray) {
-                    NSMutableDictionary *videoComponents = [videoEncodedString dictionaryFromQueryStringComponents];
-                    NSString *type = [[[videoComponents objectForKey:@"type"] objectAtIndex:0] stringByDecodingURLFormat];
-                    NSString *signature = nil;
-                    if ([videoComponents objectForKey:@"sig"]) {
-                        signature = [[videoComponents objectForKey:@"sig"] objectAtIndex:0];
-                    }
+            if ( parts )
+            {
+                // check for error response
+                NSString * errorCode = [[parts objectForKey:@"errorcode"] objectAtIndex:0];
+                if ( errorCode != nil )
+                {
                     
-                    if ([type rangeOfString:@"mp4"].length > 0) {
-                        NSString *url = [[[videoComponents objectForKey:@"url"] objectAtIndex:0] stringByDecodingURLFormat];
-                        url = [NSString stringWithFormat:@"%@&signature=%@", url, signature];
+                    NSString * errorReason = [[parts objectForKey:@"reason"] objectAtIndex:0];
+                    *error = [NSError errorWithDomain:@"HCYoutubeParserDomain" code:[errorCode integerValue] userInfo:@{ HCYoutubeParserErrorUserInfoReason : errorReason }];
+                }
+                else
+                {
+                
+                    NSString *fmtStreamMapString = [[parts objectForKey:@"url_encoded_fmt_stream_map"] objectAtIndex:0];
+                    NSArray *fmtStreamMapArray = [fmtStreamMapString componentsSeparatedByString:@","];
+                    
+                    videoDictionary = [NSMutableDictionary dictionary];
+                    
+                    for (NSString *videoEncodedString in fmtStreamMapArray)
+                    {
+                        NSMutableDictionary *videoComponents = [videoEncodedString dictionaryFromQueryStringComponents];
+                        NSString *type = [[[videoComponents objectForKey:@"type"] objectAtIndex:0] stringByDecodingURLFormat];
+                        NSString *signature = nil;
+                        if ([videoComponents objectForKey:@"sig"]) {
+                            signature = [[videoComponents objectForKey:@"sig"] objectAtIndex:0];
+                        }
                         
-                        NSString *quality = [[[videoComponents objectForKey:@"quality"] objectAtIndex:0] stringByDecodingURLFormat];
-                        
-                        NSLog(@"Found video for quality: %@", quality);
-                        [videoDictionary setObject:url forKey:quality];
+                        if ([type rangeOfString:@"mp4"].length > 0) {
+                            NSString *url = [[[videoComponents objectForKey:@"url"] objectAtIndex:0] stringByDecodingURLFormat];
+                            url = [NSString stringWithFormat:@"%@&signature=%@", url, signature];
+                            
+                            NSString *quality = [[[videoComponents objectForKey:@"quality"] objectAtIndex:0] stringByDecodingURLFormat];
+                            
+                            //NSLog(@"Found video for quality: %@", quality);
+                            [videoDictionary setObject:url forKey:quality];
+                        }
                     }
                 }
-                
-                return videoDictionary;
+
             }
         }
     }
     
-    return nil;
+    return videoDictionary;
 }
 
 + (NSDictionary *)h264videosWithYoutubeURL:(NSURL *)youtubeURL {
@@ -163,9 +188,9 @@
     if (youtubeID)
     {
         
-        NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"%@%@", kYoutubeInfoURL, youtubeID]];
+        NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"%@%@", HCYoutubeParserURLInfo, youtubeID]];
         NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
-        [request setValue:kUserAgent forHTTPHeaderField:@"User-Agent"];
+        [request setValue:HCYoutubeParserUserAgent forHTTPHeaderField:@"User-Agent"];
         [request setHTTPMethod:@"GET"];
         
         NSOperationQueue *queue = [[NSOperationQueue alloc] init];
@@ -246,9 +271,9 @@
                 break;
         }
         
-        NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:kYoutubeThumbnailURL, youtubeID, thumbnailSizeString]];
+        NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:HCYoutubeParserURLThumbnail, youtubeID, thumbnailSizeString]];
         NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
-        [request setValue:kUserAgent forHTTPHeaderField:@"User-Agent"];
+        [request setValue:HCYoutubeParserUserAgent forHTTPHeaderField:@"User-Agent"];
         [request setHTTPMethod:@"GET"];
         
         NSOperationQueue *queue = [[NSOperationQueue alloc] init];
@@ -279,7 +304,7 @@
     NSString *youtubeID = [self youtubeIDFromYoutubeURL:youtubeURL];
     if (youtubeID)
     {
-        NSURLRequest *request = [NSURLRequest requestWithURL:[NSURL URLWithString:[NSString stringWithFormat:kYoutubeDataURL, youtubeID]]];
+        NSURLRequest *request = [NSURLRequest requestWithURL:[NSURL URLWithString:[NSString stringWithFormat:HCYoutubeParserURLData, youtubeID]]];
         
         NSOperationQueue *queue = [[NSOperationQueue alloc] init];
         [NSURLConnection sendAsynchronousRequest:request queue:queue completionHandler:^(NSURLResponse *response, NSData *data, NSError *error) {
